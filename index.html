@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto Subtitle Video Permanen</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            max-width: 750px;
+            margin: 30px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        .card {
+            background: #1e293b;
+            padding: 25px;
+            border-radius: 14px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+        }
+        h2 { margin-top: 0; color: #38bdf8; }
+        input[type="file"] {
+            margin: 15px 0;
+            padding: 12px;
+            background: #334155;
+            border-radius: 8px;
+            color: #fff;
+            width: 85%;
+            cursor: pointer;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 8px;
+            transition: 0.2s;
+        }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #64748b; cursor: not-allowed; }
+        #status {
+            margin: 15px 0;
+            padding: 12px;
+            background: #0f172a;
+            border-radius: 8px;
+            color: #fbbf24;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        canvas {
+            max-width: 100%;
+            max-height: 450px;
+            border-radius: 10px;
+            margin-top: 15px;
+            background: #000;
+            display: none;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        textarea {
+            width: 90%;
+            height: 110px;
+            margin-top: 12px;
+            background: #0f172a;
+            color: #fff;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px;
+            font-family: monospace;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>🎬 Auto-Subtitle Video (100% Permanen)</h2>
+    <p style="font-size: 14px; color: #94a3b8;">AI berjalan langsung di browser. Gratis selamanya tanpa batas server.</p>
+    
+    <input type="file" id="videoInput" accept="video/mp4,video/webm,video/quicktime">
+    <br>
+    <button id="processBtn" disabled>1. Buat Teks Subtitle (AI)</button>
+    <button id="renderBtn" style="display:none; background:#10b981;">2. Tempel Teks & Download Video</button>
+    
+    <div id="status">Pilih file video terlebih dahulu...</div>
+    
+    <!-- Kotak untuk melihat atau mengedit hasil teks sebelum ditempel -->
+    <textarea id="subEditor" placeholder="Teks subtitle akan muncul di sini dan bisa diedit..."></textarea>
+    
+    <video id="hiddenVideo" style="display:none;" playsinline></video>
+    <canvas id="videoCanvas"></canvas>
+</div>
+
+<script type="module">
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+    env.allowLocalModels = false;
+
+    const videoInput = document.getElementById('videoInput');
+    const processBtn = document.getElementById('processBtn');
+    const renderBtn = document.getElementById('renderBtn');
+    const status = document.getElementById('status');
+    const hiddenVideo = document.getElementById('hiddenVideo');
+    const canvas = document.getElementById('videoCanvas');
+    const ctx = canvas.getContext('2d');
+    const subEditor = document.getElementById('subEditor');
+
+    let videoFile = null;
+    let subtitles = [];
+
+    videoInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            videoFile = e.target.files[0];
+            hiddenVideo.src = URL.createObjectURL(videoFile);
+            processBtn.disabled = false;
+            renderBtn.style.display = 'none';
+            subEditor.style.display = 'none';
+            status.innerText = "Video siap! Klik tombol '1. Buat Teks Subtitle (AI)'.";
+        }
+    });
+
+    // Ekstrak suara dari video langsung di browser (16kHz untuk Whisper AI)
+    async function extractAudio(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        return audioBuffer.getChannelData(0);
+    }
+
+    processBtn.addEventListener('click', async () => {
+        try {
+            processBtn.disabled = true;
+            status.innerText = "⏳ Mengunduh otak AI Whisper ke browser (Hanya agak lama saat pertama kali)...";
+            
+            // Menggunakan model Whisper Multilingual yang mendukung Bahasa Indonesia
+            const transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base');
+            
+            status.innerText = "🎵 Mengekstrak suara dari video...";
+            const audioData = await extractAudio(videoFile);
+            
+            status.innerText = "🧠 AI sedang mendengarkan suara dan mengetik subtitle...";
+            const output = await transcriber(audioData, {
+                language: 'indonesian',
+                task: 'transcribe',
+                return_timestamps: true,
+                chunk_length_s: 30,
+                stride_length_s: 5
+            });
+
+            subtitles = output.chunks.map(chunk => ({
+                start: chunk.timestamp[0],
+                end: chunk.timestamp[1] || chunk.timestamp[0] + 3,
+                text: chunk.text.trim()
+            }));
+
+            // Tampilkan di kotak editor supaya bisa dikoreksi jika ada typo
+            subEditor.style.display = ' inline-block';
+            subEditor.value = JSON.stringify(subtitles, null, 2);
+
+            status.innerText = "✅ Teks berhasil dibuat! Kamu bisa cek/edit teks di bawah, lalu klik tombol Hijau.";
+            renderBtn.style.display = 'inline-block';
+            processBtn.disabled = false;
+        } catch (err) {
+            status.innerText = "❌ Error: " + err.message;
+            processBtn.disabled = false;
+        }
+    });
+
+    renderBtn.addEventListener('click', async () => {
+        try {
+            subtitles = JSON.parse(subEditor.value);
+        } catch (e) {
+            alert("Format teks di kotak edit tidak valid! Pastikan tanda kutip dan kurungnya tidak terhapus.");
+            return;
+        }
+
+        renderBtn.disabled = true;
+        processBtn.disabled = true;
+        canvas.style.display = 'block';
+        status.innerText = "🎬 Sedang memutar & membakar teks secara permanen ke dalam video... Tunggu sampai video selesai.";
+
+        await hiddenVideo.play();
+        hiddenVideo.pause();
+        hiddenVideo.currentTime = 0;
+
+        canvas.width = hiddenVideo.videoWidth;
+        canvas.height = hiddenVideo.videoHeight;
+
+        const canvasStream = canvas.captureStream(30);
+        
+        // Gabungkan suara asli video ke video baru
+        const audioCtx = new AudioContext();
+        const source = audioCtx.createMediaElementSource(hiddenVideo);
+        const dest = audioCtx.createMediaStreamDestination();
+        source.connect(dest);
+        source.connect(audioCtx.destination);
+
+        const combinedStream = new MediaStream([
+            ...canvasStream.getVideoTracks(),
+            ...dest.stream.getAudioTracks()
+        ]);
+
+        const recorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm;codecs=vp9' });
+        const chunks = [];
+        recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+        
+        recorder.onstop = () => {
+            const blob = new Blob(chunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'video_bersubtitle_permanen.webm';
+            a.click();
+            status.innerText = "🎉 Selesai! Video dengan subtitle permanen otomatis ter-download.";
+            renderBtn.disabled = false;
+            processBtn.disabled = false;
+        };
+
+        recorder.start();
+        hiddenVideo.play();
+
+        function drawFrame() {
+            if (hiddenVideo.paused || hiddenVideo.ended) {
+                if (recorder.state === 'recording') recorder.stop();
+                return;
+            }
+            ctx.drawImage(hiddenVideo, 0, 0, canvas.width, canvas.height);
+
+            const currentTime = hiddenVideo.currentTime;
+            const activeSub = subtitles.find(s => currentTime >= s.start && currentTime <= s.end);
+
+            if (activeSub) {
+                const fontSize = Math.floor(canvas.height * 0.045);
+                ctx.font = `bold ${fontSize}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.lineWidth = Math.max(4, Math.floor(fontSize * 0.18));
+                ctx.strokeStyle = 'black';
+                ctx.fillStyle = '#fde047'; // Warna kuning jelas ala TikTok/Reels
+
+                const x = canvas.width / 2;
+                const y = canvas.height - (canvas.height * 0.12);
+
+                ctx.strokeText(activeSub.text, x, y);
+                ctx.fillText(activeSub.text, x, y);
+            }
+
+            requestAnimationFrame(drawFrame);
+        }
+
+        drawFrame();
+    });
+</script>
+
+</body>
+</html>
