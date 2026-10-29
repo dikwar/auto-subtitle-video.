@@ -21,29 +21,38 @@
             box-shadow: 0 10px 25px rgba(0,0,0,0.4);
         }
         h2 { margin-top: 0; color: #38bdf8; }
-        input[type="file"] {
-            margin: 15px 0;
+        .input-group {
+            background: #0f172a;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #334155;
+        }
+        input[type="file"], input[type="url"] {
+            margin: 8px 0;
             padding: 12px;
             background: #334155;
+            border: 1px solid #475569;
             border-radius: 8px;
             color: #fff;
             width: 85%;
-            cursor: pointer;
         }
         button {
             background: #3b82f6;
             color: white;
             border: none;
-            padding: 12px 24px;
+            padding: 12px 20px;
             border-radius: 8px;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: bold;
             cursor: pointer;
-            margin: 8px;
+            margin: 6px;
             transition: 0.2s;
         }
         button:hover { background: #2563eb; }
         button:disabled { background: #64748b; cursor: not-allowed; }
+        .btn-link { background: #8b5cf6; }
+        .btn-link:hover { background: #7c3aed; }
         #status {
             margin: 15px 0;
             padding: 12px;
@@ -75,25 +84,40 @@
             font-family: monospace;
             display: none;
         }
+        .divider {
+            margin: 10px 0;
+            color: #64748b;
+            font-size: 13px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <h2>🎬 Auto-Subtitle Video (100% Permanen)</h2>
-    <p style="font-size: 14px; color: #94a3b8;">AI berjalan langsung di browser. Gratis selamanya tanpa batas server.</p>
+    <h2>🎬 Auto-Subtitle Video (File & Link)</h2>
+    <p style="font-size: 14px; color: #94a3b8;">Pilih video dari perangkatmu atau masukkan link video langsung.</p>
     
-    <input type="file" id="videoInput" accept="video/mp4,video/webm,video/quicktime">
-    <br>
+    <div class="input-group">
+        <strong>📂 Cara 1: Upload File Video</strong><br>
+        <input type="file" id="videoInput" accept="video/mp4,video/webm,video/quicktime">
+        
+        <div class="divider">— ATAU —</div>
+        
+        <strong>🔗 Cara 2: Pakai Link Video (.mp4 / Direct Link)</strong><br>
+        <input type="url" id="urlInput" placeholder="Tempel link video di sini (contoh: https://.../video.mp4)">
+        <br>
+        <button id="loadUrlBtn" class="btn-link">Muat Video dari Link</button>
+    </div>
+
     <button id="processBtn" disabled>1. Buat Teks Subtitle (AI)</button>
     <button id="renderBtn" style="display:none; background:#10b981;">2. Tempel Teks & Download Video</button>
     
-    <div id="status">Pilih file video terlebih dahulu...</div>
+    <div id="status">Silakan pilih file video atau muat dari link terlebih dahulu...</div>
     
-    <!-- Kotak untuk melihat atau mengedit hasil teks sebelum ditempel -->
     <textarea id="subEditor" placeholder="Teks subtitle akan muncul di sini dan bisa diedit..."></textarea>
     
-    <video id="hiddenVideo" style="display:none;" playsinline></video>
+    <video id="hiddenVideo" crossorigin="anonymous" style="display:none;" playsinline></video>
     <canvas id="videoCanvas"></canvas>
 </div>
 
@@ -102,6 +126,8 @@
     env.allowLocalModels = false;
 
     const videoInput = document.getElementById('videoInput');
+    const urlInput = document.getElementById('urlInput');
+    const loadUrlBtn = document.getElementById('loadUrlBtn');
     const processBtn = document.getElementById('processBtn');
     const renderBtn = document.getElementById('renderBtn');
     const status = document.getElementById('status');
@@ -110,23 +136,62 @@
     const ctx = canvas.getContext('2d');
     const subEditor = document.getElementById('subEditor');
 
-    let videoFile = null;
+    let videoBlob = null;
     let subtitles = [];
 
+    // Jika pengguna memilih Upload File
     videoInput.addEventListener('change', (e) => {
         if (e.target.files.length > 0) {
-            videoFile = e.target.files[0];
-            hiddenVideo.src = URL.createObjectURL(videoFile);
+            videoBlob = e.target.files[0];
+            hiddenVideo.src = URL.createObjectURL(videoBlob);
             processBtn.disabled = false;
             renderBtn.style.display = 'none';
             subEditor.style.display = 'none';
-            status.innerText = "Video siap! Klik tombol '1. Buat Teks Subtitle (AI)'.";
+            status.innerText = "✅ File video siap! Klik tombol '1. Buat Teks Subtitle (AI)'.";
         }
     });
 
-    // Ekstrak suara dari video langsung di browser (16kHz untuk Whisper AI)
-    async function extractAudio(file) {
-        const arrayBuffer = await file.arrayBuffer();
+    // Jika pengguna memilih Muat dari Link
+    loadUrlBtn.addEventListener('click', async () => {
+        const url = urlInput.value.trim();
+        if (!url) {
+            alert("Masukkan link videonya terlebih dahulu!");
+            return;
+        }
+
+        try {
+            loadUrlBtn.disabled = true;
+            processBtn.disabled = true;
+            status.innerText = "⏳ Sedang mengunduh video dari link...";
+
+            // Coba unduh langsung, jika diblokir CORS gunakan bantuan proxy gratis
+            let response;
+            try {
+                response = await fetch(url);
+                if (!response.ok) throw new Error("Gagal mengambil video");
+            } catch (corsErr) {
+                status.innerText = "🔄 Mencoba jalur alternatif (melewati proteksi link)...";
+                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+                response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error("Link tidak bisa diakses atau bukan link video langsung.");
+            }
+
+            videoBlob = await response.blob();
+            hiddenVideo.src = URL.createObjectURL(videoBlob);
+            
+            processBtn.disabled = false;
+            loadUrlBtn.disabled = false;
+            renderBtn.style.display = 'none';
+            subEditor.style.display = 'none';
+            status.innerText = "✅ Video dari link berhasil dimuat! Klik tombol '1. Buat Teks Subtitle (AI)'.";
+        } catch (err) {
+            loadUrlBtn.disabled = false;
+            status.innerText = "❌ Gagal memuat link: Pastikan link tersebut adalah link file video langsung (berakhiran .mp4), bukan link halaman YouTube/TikTok.";
+        }
+    });
+
+    async function extractAudio(blobData) {
+        const arrayBuffer = await blobData.arrayBuffer();
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
         return audioBuffer.getChannelData(0);
@@ -137,11 +202,10 @@
             processBtn.disabled = true;
             status.innerText = "⏳ Mengunduh otak AI Whisper ke browser (Hanya agak lama saat pertama kali)...";
             
-            // Menggunakan model Whisper Multilingual yang mendukung Bahasa Indonesia
             const transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base');
             
             status.innerText = "🎵 Mengekstrak suara dari video...";
-            const audioData = await extractAudio(videoFile);
+            const audioData = await extractAudio(videoBlob);
             
             status.innerText = "🧠 AI sedang mendengarkan suara dan mengetik subtitle...";
             const output = await transcriber(audioData, {
@@ -158,8 +222,7 @@
                 text: chunk.text.trim()
             }));
 
-            // Tampilkan di kotak editor supaya bisa dikoreksi jika ada typo
-            subEditor.style.display = ' inline-block';
+            subEditor.style.display = 'inline-block';
             subEditor.value = JSON.stringify(subtitles, null, 2);
 
             status.innerText = "✅ Teks berhasil dibuat! Kamu bisa cek/edit teks di bawah, lalu klik tombol Hijau.";
@@ -182,7 +245,7 @@
         renderBtn.disabled = true;
         processBtn.disabled = true;
         canvas.style.display = 'block';
-        status.innerText = "🎬 Sedang memutar & membakar teks secara permanen ke dalam video... Tunggu sampai video selesai.";
+        status.innerText = "🎬 Sedang memutar & membakar teks secara permanen ke dalam video... Tunggu sampai selesai.";
 
         await hiddenVideo.play();
         hiddenVideo.pause();
@@ -193,7 +256,6 @@
 
         const canvasStream = canvas.captureStream(30);
         
-        // Gabungkan suara asli video ke video baru
         const audioCtx = new AudioContext();
         const source = audioCtx.createMediaElementSource(hiddenVideo);
         const dest = audioCtx.createMediaStreamDestination();
@@ -240,7 +302,7 @@
                 ctx.textAlign = 'center';
                 ctx.lineWidth = Math.max(4, Math.floor(fontSize * 0.18));
                 ctx.strokeStyle = 'black';
-                ctx.fillStyle = '#fde047'; // Warna kuning jelas ala TikTok/Reels
+                ctx.fillStyle = '#fde047';
 
                 const x = canvas.width / 2;
                 const y = canvas.height - (canvas.height * 0.12);
